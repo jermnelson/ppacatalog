@@ -1,0 +1,115 @@
+{% extends 'app-base.html' %}
+{% load i18n %}
+
+{% block head-title %}
+{% if library %}{{ library.name }}{% else %}Aristotle Library Apps {% endif %}
+ Fedora Batch App
+{% endblock %}
+
+{% block more-css %}
+<style media="screen" type="text/css">
+ ul.fedora-batch-nav {
+   background-color: rgb(209,208,208);
+   border-radius: 5px;
+   -webkit-border-radius: 5px;
+   -moz-border-radius: 5px;
+   padding: .5em;
+   width: 12%;
+ }
+
+</style>
+{% endblock %}
+
+
+{% block body %}
+{% comment %}START content DIV{% endcomment %}
+<div class="container-fluid">
+ {% comment %}START row-fluid DIV{% endcomment %}
+ <div class="row-fluid">
+  {% comment %}START fedora batch nav DIV{% endcomment %}
+  <div class="span2">
+   <ul data-spy="affix" class="nav nav-stacked affix fedora-batch-nav" >
+     <li>
+	   <i class="icon-chevron-right pull-right"></i>
+	   <a href="#" data-bind="click: ShowBatchIngest">Batch Ingest</a>
+	 </li>
+	 <li>
+	  <i class="icon-chevron-right pull-right"></i>
+	  <a href="#modify">Batch Modify</a> 
+	 </li>
+     <li>
+	   <i class="icon-chevron-right pull-right"></i>
+	   <a href="#generate-marc">Generate MARC Record</a>
+	 </li>	 
+	 <li>
+	   <i class="icon-chevron-right pull-right"></i>
+	   <a href="#mover">Object Mover</a>
+	 </li>
+	 <li>
+	  
+	 </li>
+   </ul>
+  {% comment %}END fedora batch nav DIV{% endcomment %}
+  </div>
+  {% comment %}START views DIV{% endcomment %}
+  <div class="span7">
+   <div class="well" data-bind="visible: batchIngest">
+    <a name="ingest"></a>
+    <h2>Batch Ingest</h2>
+	<form>
+	 {{ ingest_form.as_p }}
+	 <a href="#" class="btn btn-primary">Ingest</a>
+	</form>
+   </div>
+   <hr />
+   <div class="well">
+     <a name="modify"></a>
+     <h2>Batch Modify Metadata</h2>
+	 <p>With this form you'll be able to modify the existing metadata for one 
+	    or more objects in a Fedora Commons server.</p>
+	 <form>
+	  {{ modify_form.as_p }}
+	  <a href="#" class="btn btn-primary">Modify</a>
+	 </form>
+   </div>
+   <hr />
+   <div class="well">
+    <a name="generate-marc"></a>
+	<h2>Generate MARC record</h2>
+	
+	  <a href="#" class="btn btn-primary">Generate MARC</a>
+   </div>
+   <hr />
+   <div class="well">
+     <a name="mover" ></a>
+     <h2>PID Mover</h2>
+	 <p>Moves a single object or collection in a Fedora Commons Server</p>
+	 <form>
+	   {{ object_mover_form.as_p }}
+	 </form>
+  {% comment %}END widget DIV{% endcomment %}
+  </div>
+  
+ {% comment %}END row-fluid DIV{% endcomment %}
+ </div>
+{% comment %}END content DIV{% endcomment %}
+</div>
+{% endblock %}
+
+{% block more-js %}
+<script src="{{ STATIC_URL }}js/jquery.js"></script>
+<script src="{{ STATIC_URL }}js/bootstrap-typeahead.js"></script>
+<script src="{{ STATIC_URL }}js/knockout.js"></script>
+<script>
+ function BatchIngestViewModel() {
+   this.batchIngest = ko.observable(false);
+   
+   this.ShowBatchIngest = function() {
+      this.batchIngest = ko.observable(true);
+   }
+ 
+ }
+
+ ko.applyBindings(new BatchIngestViewModel());
+</script>
+{% endblock %}

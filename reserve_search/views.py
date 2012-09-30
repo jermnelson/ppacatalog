@@ -9,7 +9,7 @@ from aristotle.settings import INSTITUTION
 
 def default(request):
     """
-    default is the standard view for the article search app
+    default is the standard view for the reserve search app
     :param request: web request
     """
 
@@ -20,7 +20,7 @@ def default(request):
 
 def widget(request):
     """
-    Returns rendered html snippet of article_search widget
+    Returns rendered html snippet of reserve_search widget
     """
 
     return direct_to_template(request,
@@ -28,3 +28,14 @@ def widget(request):
                               {'app':APP,
                                'standalone':True,
                                'showappicon':True})
+
+def dotCMS(request):
+    """
+    Returns rendered html snippet of reserve_search widget for dotCMS display
+    """
+
+    return direct_to_template(request,
+                              'reserve_search/snippets/dotCMS.html',
+                              {'app':APP,
+                               'standalone':True,
+                               'showappicon':False})

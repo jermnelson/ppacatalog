@@ -29,7 +29,7 @@ class CreateRDACoreEntityFromMARCTest(TestCase):
 
     def test_init(self):
         self.assertEquals(self.entity_generator.entity_key,
-                          "{0}:Generic:1".format(self.root_key))
+                          "rdaCore:Generic:1")
 
     def test_generate(self):
         self.entity_generator.generate()
@@ -64,7 +64,7 @@ class CreateRDACoreExpressionFromMARCTest(TestCase):
 
     def test_init(self):
         self.assertEquals(self.expression_generator.entity_key,
-                          "{0}:Expression:1".format(self.root_key))
+                          "rdaCore:Expression:1")
 
     def test_content_type(self):
         content_type_key = "{0}:rdaContentType".format(self.expression_generator.entity_key)
@@ -74,6 +74,9 @@ class CreateRDACoreExpressionFromMARCTest(TestCase):
         self.assert_(test_ds.sismember(content_type_key,"Sound recording"))
         # Test Expression.contentType in Redis to value in the 700 field
         self.assert_(test_ds.sismember(content_type_key,"Computer Program"))
+
+    def test__call_number_app__(self):
+        pass
         
 
     def tearDown(self):
@@ -95,7 +98,7 @@ class CreateRDACoreItemFromMARCTest(TestCase):
 
     def test_init(self):
         self.assertEquals(self.item_generator.entity_key,
-                          "{0}:Item:1".format(self.root_key))
+                          "rdaCore:Item:1")
 
     def test_restrictions_on_use(self):
         
@@ -154,6 +157,9 @@ class CreateRDACoreManifestationFromMARCTest(TestCase):
         self.test_rec.add_field(pymarc.Field('086',
                                              indicators=['1',''],
                                              subfields=['a','CS13-211']))
+        self.test_rec.add_field(pymarc.Field('245',
+                                             indicators=["",""],
+                                             subfields=["a",'Test Record Title']))
         self.test_rec.add_field(pymarc.Field('250',
                                              indicators=['',''],
                                              subfields=['a','4th ed.',
@@ -175,7 +181,7 @@ class CreateRDACoreManifestationFromMARCTest(TestCase):
 
     def test_init(self):
         self.assertEquals(self.manifestation_generator.entity_key,
-                          "{0}:Manifestation:1".format(self.root_key))
+                          "rdaCore:Manifestation:1")
 
 
     def test_carrier_type(self):
@@ -269,6 +275,12 @@ class CreateRDACoreManifestationFromMARCTest(TestCase):
                                        'SuDoc'),
                           'HE 20.6209:13/45')
 
+    def test_title(self):
+        title_set_key = test_ds.hget(self.manifestation_generator.entity_key,
+                                     "rdaTitle")
+        self.assertEquals(''.join(test_ds.smembers(title_set_key)),
+                          'Test Record Title')
+
     def test_upc(self):
         self.assertEquals(test_ds.hget(self.identifiers_key,
                                        'UPC'),
@@ -278,6 +290,61 @@ class CreateRDACoreManifestationFromMARCTest(TestCase):
 
         
 
+    def tearDown(self):
+        test_ds.flushdb()
+
+class CreateRDACoreCreateRDACorePersonsFromMARC(TestCase):
+
+    def setUp(self):
+        self.test_rec = pymarc.Record()
+        self.test_rec.add_field(pymarc.Field(tag='100',
+                                             indicators=["1",""],
+                                             subfields=["a","Rosebrough, Robert F."]))
+        self.test_rec.add_field(pymarc.Field(tag='700',
+                                             indicators=["0",""],
+                                             subfields=["a","Whipple, Fred L.",
+                                                        "d","1906-2004"]))
+        self.test_rec.add_field(pymarc.Field(tag='700',
+                                             indicators=["0",""],
+                                             subfields=["a","Field, George B.",
+                                                        "d","1929-"]))
+        self.test_rec.add_field(pymarc.Field(tag='700',
+                                             indicators=["0",""],
+                                             subfields=["a","Cameron, A. G. W.",
+                                                        "d","1925-"]))
+        self.person_generator = CreateRDACorePersonsFromMARC(record=self.test_rec,
+                                                             redis_server = test_ds)
+        self.person_generator.generate()
+
+    def test_init(self):
+        self.assertEquals(self.person_generator.people[0],
+                          "rdaCore:Person:1")
+
+    def test_preferred_name(self):
+        self.assertEquals(test_ds.hget(self.person_generator.people[0],
+                                       "rdaPreferredNameForThePerson"),
+                          "Rosebrough, Robert F.")
+        self.assertEquals(test_ds.hget(self.person_generator.people[1],
+                                       "rdaPreferredNameForThePerson"),
+                          "Whipple, Fred L.")
+        self.assertEquals(test_ds.hget(self.person_generator.people[2],
+                                       "rdaPreferredNameForThePerson"),
+                          "Field, George B.")
+        self.assertEquals(test_ds.hget(self.person_generator.people[3],
+                                       "rdaPreferredNameForThePerson"),
+                          "Cameron, A. G. W.")
+
+    def test_date_associated_with_person(self):
+        self.assertEquals(test_ds.hget(self.person_generator.people[1],
+                                       "rdaDateAssociatedWithThePerson"),
+                          "1906-2004")
+        self.assertEquals(test_ds.hget(self.person_generator.people[2],
+                                       "rdaDateAssociatedWithThePerson"),
+                          "1929-")
+        self.assertEquals(test_ds.hget(self.person_generator.people[3],
+                                       "rdaDateAssociatedWithThePerson"),
+                          "1925-")
+        
     def tearDown(self):
         test_ds.flushdb()
 
@@ -299,7 +366,7 @@ class CreateRDACoreWorkFromMARCTest(TestCase):
 
     def test_init(self):
         self.assertEquals(self.work_generator.entity_key,
-                          "{0}:Work:1".format(self.root_key))
+                          "rdaCore:Work:1")
 
     def test_date_of_work(self):
         dow_key = test_ds.hget(self.work_generator.entity_key,

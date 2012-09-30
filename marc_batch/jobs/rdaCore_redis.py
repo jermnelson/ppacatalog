@@ -5,27 +5,30 @@
 """
 __author__ = 'Jeremy Nelson'
 import pymarc,redis,logging,sys
-import re,datetime
+import re,datetime,copy,os
 from marc_batch.fixures import json_loader
+from call_number.redis_helpers import ingest_call_numbers
+from rdaCore.app_settings import WORK_REDIS,EXPRESSION_REDIS,MANIFESTATION_REDIS
+from rdaCore.app_settings import ITEM_REDIS,TITLE_REDIS
 
 
 try:
     import aristotle.settings as settings
-    REDIS_HOST = settings.REDIS_ACCESS_HOST
-    REDIS_PORT = settings.REDIS_ACCESS_PORT
-    TEST_DB = settings.REDIS_TEST
-    volatile_redis = redis.StrictRedis(host=settings.REDIS_PRODUCTIVITY_HOST,
-                                       port=settings.REDIS_PRODUCTIVITY_PORT)
+    REDIS_HOST = settings.REDIS_MASTER_HOST
+    REDIS_PORT = settings.REDIS_MASTER_PORT
+                                
 except:
     REDIS_HOST = '127.0.0.1'
     REDIS_PORT = 6379
-    REDIS_TEST_DB = 3
+    REDIS_TEST_DB = 1
 
 # RDA Core should reside on primary DB of 0
 redis_server = redis.StrictRedis(host=REDIS_HOST,
                                  port=REDIS_PORT)    
 
 year_re = re.compile(r"(\d+)")
+
+
 
 class MARCRules(object):
 
@@ -37,10 +40,29 @@ class MARCRules(object):
         if kwargs.has_key('json_rules'):
             self.json_rules = kwargs.get('json_rules')
 
+    def __filter_raw_value__(self,rule,raw_value):
+        """
+        Helper method applies any filter associated with the
+        rule to the raw_value extracted from the MARC record.
+
+        :param rule: JSON Rule
+        :param raw_value: Raw value extracted from MARC record
+        """
+        if rule.has_key("filter"):
+            # NOTE filter should be python lambda form and returns
+            # a modified string
+            rule_filter = eval(rule["filter"])
+            return rule_filter(raw_value)
+        return raw_value
+            
+
     def __get_position_values__(self,rule,marc_field):
         """
         Helper method checks MARC values from fixed positions based
         on the rule's position
+
+        :param rule: JSON Rule
+        :param marc_field: MARC field
         """
         values = str()
         if rule.has_key("positions") and marc_field.is_control_field():
@@ -51,7 +73,7 @@ class MARCRules(object):
             values += raw_value[start_position:end_position+1]
         if len(values) < 1:
             return None
-        return values
+        return self.__filter_raw_value__(rule,values)
 
     def __get_subfields__(self,rule,marc_field):
         """
@@ -69,7 +91,9 @@ class MARCRules(object):
             rule_subfields = rule["subfields"]
             output = []
             for subfield in rule_subfields:
-                output.append(''.join(marc_field.get_subfields(subfield)))
+                final_value = self.__filter_raw_value__(rule,
+                                                        ''.join(marc_field.get_subfields(subfield)))
+                output.append(final_value)
         return output
 
 
@@ -93,6 +117,8 @@ class MARCRules(object):
             if pass_rule is None:
                 pass_rule = False
         return pass_rule
+
+
 
     def __test_position_values__(self,rule,marc_field):
         """
@@ -152,12 +178,7 @@ class MARCRules(object):
                             if self.json_results.has_key(rda_element):
                                 self.json_results[rda_element].extend(subfield_values)
                             else:
-                                self.json_results[rda_element] = subfield_values
-                                
-                        
-                        
-                        
-                    
+                                self.json_results[rda_element] = subfield_values                    
             
 
 class CreateRDACoreEntityFromMARC(object):
@@ -172,8 +193,8 @@ class CreateRDACoreEntityFromMARC(object):
         self.redis_server = kwargs.get('redis_server')
         self.root_redis_key = kwargs.get('root_redis_key')
         entity_name = kwargs.get('entity')
-        redis_incr_value = self.redis_server.incr("global:{0}:{1}".format(self.root_redis_key,
-                                                                          entity_name))
+        base_entity_key = "rdaCore:{0}".format(entity_name)
+        redis_incr_value = self.redis_server.incr("global:{0}".format(base_entity_key))
         if kwargs.has_key("json_file"):
             self.marc_rules = MARCRules(json_file=kwargs.get('json_file'))
         elif kwargs.has_key("json_rules"):
@@ -181,9 +202,8 @@ class CreateRDACoreEntityFromMARC(object):
         else:
             raise ValueError("CreateRDACoreEntityFromMARC requires json_file or json_rules")
         # Redis Key for this Entity
-        self.entity_key = "{0}:{1}:{2}".format(self.root_redis_key,
-                                               entity_name,
-                                               redis_incr_value)
+        self.entity_key = "{0}:{1}".format(base_entity_key,
+                                           redis_incr_value)
     
      
     def generate(self):
@@ -205,15 +225,17 @@ class CreateRDACoreEntityFromMARC(object):
             # to the Entity's hash.
             if existing_value is None:
                 if len(values) == 1:
-                    self.redis_server.hset(self.entity_key,
-                                           element,
-                                           values[0])
+                    if len(values[0]) > 0:
+                        self.redis_server.hset(self.entity_key,
+                                               element,
+                                               values[0])
                 else:
                     new_set_key = "{0}:{1}".format(self.entity_key,
                                                    element)
                     for row in values:
-                        self.redis_server.sadd(new_set_key,
-                                               row)
+                        if len(row) > 0:
+                            self.redis_server.sadd(new_set_key,
+                                                   row)
                     self.redis_server.hset(self.entity_key,
                                            element,
                                            new_set_key)
@@ -223,8 +245,9 @@ class CreateRDACoreEntityFromMARC(object):
             elif self.redis_server.exists(existing_value):
                 if self.redis_server.type(existing_value) == 'set':
                     for row in values:
-                        self.redis_server.sadd(existing_value,
-                                               value)
+                        if len(value) > 0:
+                            self.redis_server.sadd(existing_value,
+                                                   value)
             # By this point, existing_value should be string value
             # extracted from Redis datastore. Checks if the existing
             # value from Redis and the value from the MARC
@@ -235,8 +258,9 @@ class CreateRDACoreEntityFromMARC(object):
                 self.redis_server.sadd(set_key,
                                        existing_value)
                 for row in values:
-                    self.redis_server.sadd(set_key,
-                                           value)
+                    if len(value) > 0:
+                        self.redis_server.sadd(set_key,
+                                               value)
                 self.redis_server.hset(self.entity_key,
                                        element,
                                        set_key)
@@ -249,6 +273,21 @@ class CreateRDACoreExpressionFromMARC(CreateRDACoreEntityFromMARC):
         kwargs["entity"] = "Expression"
         kwargs["json_file"] = 'marc-rda-expression'
         super(CreateRDACoreExpressionFromMARC,self).__init__(**kwargs)
+
+    def generate(self):
+        super(CreateRDACoreExpressionFromMARC,self).generate()
+        self.__call_number_app__()
+
+    def __call_number_app__(self):
+        """
+        Helper function populates Redis Datastore to support
+        specific requirements for the Call Number App including
+        a call number hash key - value is this class Redis key
+        and a sorted set for LCCN call number.
+        """
+        ingest_call_numbers(self.marc_record,
+                            self.redis_server,
+                            self.entity_key)
                 
 
 class CreateRDACoreItemFromMARC(CreateRDACoreEntityFromMARC):
@@ -270,6 +309,18 @@ class CreateRDACoreManifestationFromMARC(CreateRDACoreEntityFromMARC):
         super(CreateRDACoreManifestationFromMARC,self).generate()
         self.__carrier_type__()
         self.__identifiers__()
+        self.__title__()
+
+    def __call_number_app__(self):
+        """
+        Helper function populates Redis Datastore to support
+        specific requirements for the Call Number App including
+        a call number hash key - value is this class Redis key
+        and a sorted set for SuDocs and local call number.
+        """
+        ingest_call_numbers(self.marc_record,
+                            self.redis_server,
+                            self.entity_key)
 
     def __carrier_type__(self):
         """
@@ -285,8 +336,8 @@ class CreateRDACoreManifestationFromMARC(CreateRDACoreEntityFromMARC):
         #!! Expressions for each carrier type.
         if self.redis_server.exists(carrier_value):
             for value in self.redis_server.smembers(carrier_value):
-                if len(value) != 2:
-                    raise ValueError("Carrier Type codes should only be two chars instead of {0}".format(len(value)))
+                if len(value) < 2:
+                    raise ValueError("Carrier Type codes should be greater than 2 chars instead of {0}".format(len(value)))
                 position0,position1 = value[0],value[1]
                 if carrier_types_dict.has_key(position0):
                     if carrier_types_dict[position0].has_key(position1):
@@ -294,7 +345,7 @@ class CreateRDACoreManifestationFromMARC(CreateRDACoreEntityFromMARC):
                         self.redis_server.srem(carrier_value,value)
                         self.redis_server.sadd(carrier_value,
                                                carrier_types_dict[position0][position1])
-        else:
+        elif carrier_value is not None:
             position0,position1 = carrier_value[0],carrier_value[1]
             if carrier_types_dict.has_key(position0):
                     if carrier_types_dict[position0].has_key(position1):
@@ -310,6 +361,7 @@ class CreateRDACoreManifestationFromMARC(CreateRDACoreEntityFromMARC):
         """
         identifiers_dict = json_loader.get('manifestation-identifiers')
         identifiers_key = "{0}:identifiers".format(self.entity_key)
+        # Sets identifiers attribute on entity to 
         for tag in identifiers_dict.keys():
             marc_fields = self.marc_record.get_fields(tag)
             for field in marc_fields:
@@ -340,7 +392,8 @@ class CreateRDACoreManifestationFromMARC(CreateRDACoreEntityFromMARC):
                                                            ''.join(marc_data))
                                 else:
                                     ident_set_key = "{0}:{1}s".format(self.entity_key,
-                                                                      rule['label'].replace(" ",""))
+                                                                      rule_label.replace(" ",""))
+                                    
                                     for row in marc_data:
                                         self.redis_server.sadd(ident_set_key,
                                                                row)
@@ -352,26 +405,101 @@ class CreateRDACoreManifestationFromMARC(CreateRDACoreEntityFromMARC):
                                            rule['label'],
                                            ''.join(field.get_subfields(rule['subfields'][0])))
                                                                       
-                                                                     
+    def __title__(self):
+        """
+        Extracts and creates a Manifestation rdaTitle with values extracted from
+        the MARC record.
+        """
+        title_rules = MARCRules(json_file='marc-rda-title')
+        title_rules.load_marc(self.marc_record)
+        title_key = "{0}:rdaTitle".format(self.entity_key)
+        self.redis_server.hset(self.entity_key,"rdaTitle",title_key)
+        for element,values in title_rules.json_results.iteritems():
+            title_element_value = ''.join(values)
+            # Checks and removes trailing /
+            if len(title_element_value) > 0 and title_element_value[-1] == "/":
+                title_element_value = title_element_value[:-1].strip()
+            self.redis_server.hset(title_key,element,title_element_value)
+        # Creates a label for the Manifestation Title
+        if self.redis_server.hexists(title_key,"rdaRemainingTitle"):
+            title_pipe = self.redis_server.pipeline()
+            title_pipe.hget(title_key,"rdaTitleProper")
+            title_pipe.hget(title_key,"rdaRemainingTitle")
+            title_label = ' '.join(title_pipe.execute())
+            self.redis_server.hset(title_key,
+                                   'label',
+                                   title_label)
+        else:
+            self.redis_server.hset(title_key,
+                                   'label',
+                                   self.redis_server.hget(title_key,
+                                                          "rdaTitleProper"))
+        
+        
+                                   
+            
+            
                                 
                                                    
-class CreateRDACorePersonFromMARC(object):
+class CreateRDACorePersonsFromMARC(object):
 
     def __init__(self,**kwargs):
-        if kwargs.has_key('json-rules'):
-            self.json_rules = kwargs.get('json-rules')
+        self.marc_record = kwargs.get('record')
+        self.redis_server = kwargs.get('redis_server')
+        self.json_rules = copy.deepcopy(json_loader['marc-rda-person'])
+        self.person_name_rule = self.json_rules.pop('rdaPreferredNameForThePerson')
+        self.entity_ruleset = {}
+        for attribute,body in self.json_rules.iteritems():
+            for tag,rule in body.iteritems():
+                if self.entity_ruleset.has_key(tag):
+                    self.entity_ruleset[tag][attribute] = rule
+                else:
+                    self.entity_ruleset[tag] = {attribute:rule}
+        self.people = []
+
+    def __get_or_add_person__(self,field):
+        if self.person_name_rule.has_key(field.tag):
+            field_rule = self.person_name_rule[field.tag]
+            if MARCRules().__test_indicators__(field_rule,field):
+                raw_name = MARCRules().__get_subfields__(field_rule,field)
+            else:
+                return None
         else:
-            self.json_rules = json_loader['marc-rda-person']
+            return None
+        if self.redis_server.hexists('person-name-hash',
+                                     raw_name):
+            person_key = self.redis_server.hget('person-name-hash',raw_name)
+        else:
+            person_key = "rdaCore:Person:{0}".format(self.redis_server.incr("global:rdaCore:Person"))
+            self.redis_server.hset(person_key,
+                                   'rdaPreferredNameForThePerson',
+                                   ''.join(raw_name))
+            self.redis_server.hset('person-name-hash',
+                                   ''.join(raw_name),
+                                   person_key)
+        self.people.append(person_key)
+        return person_key
+    
 
     def generate(self):
-        super(CreateRDACorePersonFromMARC,self).generate()
-        for rda_element in self.json_rules.keys():
-            marc_fields = rda_element.keys()
+        for tag,rules in self.entity_ruleset.iteritems():
+            marc_fields = self.marc_record.get_fields(tag)
             for field in marc_fields:
-                if field.has_key("indicators"):
-                    for indicator in field["indicators"]:
-                        pass
-                    
+                person_key = self.__get_or_add_person__(field)
+                for name,rule in rules.iteritems():
+                    if MARCRules().__test_indicators__(rule,field):
+                        raw_value = MARCRules().__get_subfields__(rule,field)
+                        self.redis_server.hset(person_key,
+                                               name,
+                                               ''.join(raw_value))
+                        
+    
+                        
+                        
+                
+            
+            
+                            
 
 class CreateRDACoreWorkFromMARC(CreateRDACoreEntityFromMARC):
 
@@ -379,6 +507,9 @@ class CreateRDACoreWorkFromMARC(CreateRDACoreEntityFromMARC):
         kwargs["entity"] = "Work"
         kwargs["json_file"] = 'marc-rda-work'
         super(CreateRDACoreWorkFromMARC,self).__init__(**kwargs)
+
+    def generate(self):
+        super(CreateRDACoreWorkFromMARC,self).generate()
 
         
 
@@ -395,22 +526,22 @@ def create_rda_redis(marc_record,datastore):
     # Generate a new rdaCore record key
     root_key = "rdaCore:{0}".format(datastore.incr("global rdaCore"))
     work_creator = CreateRDACoreWorkFromMARC(record=marc_record,
-                                             redis_server=datastore,
+                                             redis_server=WORK_REDIS,
                                              root_redis_key=root_key)
     work_creator.generate()
     datastore.sadd("rdaCore:Works",work_creator.entity_key)
     expression_creator = CreateRDACoreExpressionFromMARC(record=marc_record,
-                                                         redis_server=datastore,
+                                                         redis_server=EXPRESSION_REDIS,
                                                          root_redis_key=root_key)
     expression_creator.generate()
     datastore.sadd("rdaCore:Expressions",expression_creator.entity_key)
     manifestation_creator = CreateRDACoreManifestationFromMARC(record=marc_record,
-                                                               redis_server=datastore,
+                                                               redis_server=MANIFESTATION_REDIS,
                                                                root_redis_key=root_key)
     manifestation_creator.generate()
     datastore.sadd("rdaCore:Manifestations",manifestation.entity_key)
     item_creator = CreateRDACoreItemFromMARC(record=marc_record,
-                                             redis_server=datastore,
+                                             redis_server=ITEM_REDIS,
                                              root_redis_key=root_key)
     item_creator.generate()
     datastore.sadd("rdaCore:Items",item_creator.entity_key)
@@ -534,65 +665,84 @@ def process_008_date(marc_record,redis_server,date_sort_key):
                 redis_server.zadd(date_sort_key,
                                   int(date_search.groups()[0]),
                                   date2)
-            
-def process_tag_list_as_set(marc_record,
-                            redis_key,
-                            redis_server,
-                            tag_list,
-                            is_sorted=False):
-    """
-    Helper function takes a MARC record, a RDA redis key for the set,
-    and a listing of MARC Field tags and subfields, and adds each
-    TAG-VALUE to the set or sorted set
 
-    :param marc_record: MARC record
-    :param redis_key: Redis key for the set or sorted set
-    :param redis_server: Redis datastore instance
-    :param tag_list: A listing of ('tag','subfield') tuples
-    :param is_sorted: Boolean if sorted set, default is False
-    """
-    for tag in tag_list:
-        all_fields = marc_record.get_fields(tag[0])
-        for field in all_fields:
-            subfields = field.get_subfields(tag[1])
-            for subfield in subfields:
-                if is_sorted is True:
-                    year_search = year_re.search(subfield)
-                    if year_search is not None:
-                        redis_server.zadd(redis_key,
-                                          int(year_search.groups()[0]),
-                                          subfield)
-                else:
-                    redis_server.sadd(redis_key,subfield)
-    
-            
-            
-                
-                                  
+def ingest_record(marc_record,redis_server):
+    work_generator = CreateRDACoreWorkFromMARC(record=marc_record,
+                                               redis_server=WORK_REDIS,
+                                               root_redis_key="rdaCore")
+    work_generator.generate()
+    expression_generator = CreateRDACoreExpressionFromMARC(record=marc_record,
+                                                           redis_server=EXPRESSION_REDIS,
+                                                           root_redis_key="rdaCore")
+    expression_generator.generate()
+    manifestation_generator = CreateRDACoreManifestationFromMARC(record=marc_record,
+                                                                 redis_server=MANIFESTATION_REDIS,
+                                                                 root_redis_key="rdaCore")
+    manifestation_generator.generate()
+    item_generator = CreateRDACoreItemFromMARC(record=marc_record,
+                                               redis_server=ITEM_REDIS,
+                                               root_redis_key="rdaCore")
+    item_generator.generate()
+    persons_generator = CreateRDACorePersonsFromMARC(record=marc_record,
+                                                     redis_server=redis_server)
+                                                   
+    persons_generator.generate()
+    # Set rdaRelationships for entities
+    ITEM_REDIS.hset(item_generator.entity_key,
+                    "rdaManifestationExemplified",
+                    manifestation_generator.entity_key)
+    MANIFESTATION_REDIS.hset(manifestation_generator.entity_key,
+                             "rdaExpressionManifested",
+                             expression_generator.entity_key)
+    MANIFESTATION_REDIS.hset(manifestation_generator.entity_key,
+                             "rdaWorkManifested",
+                             work_generator.entity_key)
+    EXPRESSION_REDIS.hset(expression_generator.entity_key,
+                          "rdaManifestationOfExpression",
+                          manifestation_generator.entity_key)
+    EXPRESSION_REDIS.hset(expression_generator.entity_key,
+                          "rdaWorkExpressed",
+                          work_generator.entity_key)
+    WORK_REDIS.hset(work_generator.entity_key,
+                    "rdaExpressionOfWork",
+                    expression_generator.entity_key)
+    WORK_REDIS.hset(work_generator.entity_key,
+                    "rdaManifestationOfWork",
+                    manifestation_generator.entity_key)
+##    if len(persons_generator.people) > 0:
+##        for rda_person_key in persons_generator.people:
+##            PERSON_REDIS.sadd("{0}:rdaCreator".format(work_generator.entity_key),
+##                              rda_person_key)
+##            redis_server.hset(work_generator.entity_key,
+##                              "rdaCreator",
+##                              rda_person_key)
     
     
 
-def ingest_record(marc_record):
-    if volatile_redis is None:
-        print("Volatile Redis not available")
-        return None
-    redis_server = volatile_redis
-    bib_number = marc_record['907']['a'][1:-1]
-    redis_id = redis_server.incr("global:rdaCore")
-    redis_key = "rdaCore:%s" % redis_id
-    CreateRDACoreWorkFromMARC(record=marc_record,
-                              redis_server=redis_server,
-                              root_redis_key=redis_key)
-    
-
-
-def ingest_records(marc_file_location):
-    if volatile_redis is None:
-        return None
+def ingest_records(marc_file_location,redis_server=redis_server):
     marc_reader = pymarc.MARCReader(open(marc_file_location,"rb"))
     for i,record in enumerate(marc_reader):
         if not i%1000:
             sys.stderr.write(".")
         if not i%10000:
             sys.stderr.write(str(i))
-        ingest_record(record)
+        ingest_record(record,redis_server)
+
+def ingest_directory(marc_directory):
+    walker = os.walk(marc_directory)
+    all_files = next(walker)[2]
+    begin = datetime.datetime.now()
+    print("Ingesting all mrc files in {0}".format(marc_directory))
+    for filename in all_files:
+        ext = os.path.splitext(filename)[1]
+        if ext == '.mrc':
+            start = datetime.datetime.now()
+            ingest_records(os.path.join(marc_directory,filename))
+            end = datetime.datetime.now()
+            elapsed = end - start
+            print("\t{0} finished ingesting, total time {1}".format(filename,
+                                                                    elapsed.total_seconds()))
+    finished = datetime.datetime.now()
+    total_time = finished - begin
+    print("Finished ingesting all mrc files for {0} in {1} minutes".format(marc_file_directory,
+                                                                           total_time.total_seconds()/60.0))
