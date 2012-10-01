@@ -1,0 +1,150 @@
+[
+  {
+    "fields": {
+      "raw": "Aikido Summer Camp in the Rockies Featuring Special Guest Instructor Christian Tissier shihan 2003", 
+      "redis-key": "rda:Title:1"
+    }, 
+    "redis-key": "rda:Title:1"
+  }, 
+  {
+    "fields": {
+      "raw": "A Seminar in Paris", 
+      "redis-key": "rda:Title:2"
+    }, 
+    "redis-key": "rda:Title:2"
+  }, 
+  {
+    "fields": {
+      "raw": "Aikido 3D", 
+      "redis-key": "rda:Title:3"
+    }, 
+    "redis-key": "rda:Title:3"
+  }, 
+  {
+    "fields": {
+      "raw": "Aikido with Ki", 
+      "redis-key": "rda:Title:3"
+    }, 
+    "redis-key": "rda:Title:3"
+  }, 
+  {
+    "fields": {
+      "raw": "Deadly Arts Karate", 
+      "redis-key": "rda:Title:4"
+    }, 
+    "redis-key": "rda:Title:4"
+  }, 
+
+  {
+    "fields": {
+      "raw": "Deadly Arts Muay Thai", 
+      "redis-key": "rda:Title:5"
+    }, 
+    "redis-key": "rda:Title:5"
+  }, 
+  {
+    "fields": {
+      "raw": "Deadly Arts Savate", 
+      "redis-key": "rda:Title:6"
+    }, 
+    "redis-key": "rda:Title:6"
+  }, 
+  {
+    "fields": {
+      "raw": "Internal Power and Balance", 
+      "redis-key": "rda:Title:7"
+    }, 
+    "redis-key": "rda:Title:7"
+  },
+  {
+    "fields": {
+      "raw": "Principles of Aikido", 
+      "redis-key": "rda:Title:8"
+    }, 
+    "redis-key": "rda:Title:8"
+  }
+  {
+    "fields": {
+      "raw": "Irimi", 
+      "redis-key": "rda:Title:9"
+    }, 
+    "redis-key": "rda:Title:9"
+  }, 
+  {
+    "fields": {
+      "raw": "Buki", 
+      "redis-key": "rda:Title:10"
+    }, 
+    "redis-key": "rda:Title:10"
+  }, 
+  {
+    "fields": {
+      "raw": "Koshi", 
+      "redis-key": "rda:Title:11"
+    }, 
+    "redis-key": "rda:Title:11"
+  }, 
+  {
+    "fields": {
+      "raw": "Za", 
+      "redis-key": "rda:Title:12"
+    }, 
+    "redis-key": "rda:Title:12"
+  }, 
+  {
+    "fields": {
+      "raw": "Pikes Peak Aikido Testing Feb. 12, 2004", 
+      "redis-key": "rda:Title:13"
+    }, 
+    "redis-key": "rda:Title:13"
+  }, 
+  {
+    "fields": {
+      "raw": "Staff of Aikido", 
+      "redis-key": "rda:Title:14"
+    }, 
+    "redis-key": "rda:Title:14"
+  }, 
+  {
+    "fields": {
+      "raw": "Sword of Aikido", 
+      "redis-key": "rda:Title:15"
+    }, 
+    "redis-key": "rda:Title:15"
+  }, 
+  {
+    "fields": {
+      "raw": "Tai Chi Qigong 18 Movements 1", 
+      "redis-key": "rda:Title:16"
+    }, 
+    "redis-key": "rda:Title:16"
+  }, 
+  {
+    "fields": {
+      "raw": "Ukemi", 
+      "redis-key": "rda:Title:17"
+    }, 
+    "redis-key": "rda:Title:17"
+  }, 
+  {
+    "fields": {
+      "raw": "Yoshinkan", 
+      "redis-key": "rda:Title:18"
+    }, 
+    "redis-key": "rda:Title:18"
+  },
+  {
+    "fields": {
+      "raw": "Deadly Arts Capoeira", 
+      "redis-key": "rda:Title:19"
+    }, 
+    "redis-key": "rda:Title:Deadly Arts Aikido"
+  }, 
+  {
+    "fields": {
+      "raw": "Deadly Arts Aikido", 
+      "redis-key": "rda:Title:20"
+    }, 
+    "redis-key": "rda:Title:20"
+  } 
+]
